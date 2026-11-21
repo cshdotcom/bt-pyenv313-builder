@@ -66,7 +66,9 @@ jobs:
                 --exclude="__pycache__" --exclude="*.pyc" pyenv313
 
               ls -lh /out
-              tar -tzf /out/pyenv313-ubuntu2604-x86_64.tar.gz | head -5
+              tar -tzf /out/pyenv313-ubuntu2604-x86_64.tar.gz > /tmp/tarlist.txt
+              wc -l /tmp/tarlist.txt
+              sed -n "1,5p" /tmp/tarlist.txt
             '
 
       - name: Upload artifact
