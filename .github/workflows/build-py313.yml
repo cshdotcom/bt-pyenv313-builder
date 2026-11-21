@@ -1,0 +1,78 @@
+name: build-pyenv313
+
+on:
+  workflow_dispatch:
+    inputs:
+      jobs:
+        description: "make 并行数（目标机内存小，产物用 2 编译最稳）"
+        required: false
+        default: "2"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/build-py313.yml"
+
+concurrency:
+  group: build-pyenv313
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare output
+        run: mkdir -p "$PWD/out"
+
+      - name: Show docker image
+        run: docker image inspect ubuntu:26.04 >/dev/null 2>&1 || docker pull ubuntu:26.04
+
+      - name: Compile pyenv313 inside ubuntu:26.04
+        env:
+          JOBS: ${{ inputs.jobs || '2' }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -e JOBS="$JOBS" \
+            -v "$PWD/out:/out" \
+            ubuntu:26.04 \
+            bash -c '
+              set -euxo pipefail
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update
+              apt-get install -y --no-install-recommends \
+                ca-certificates curl wget tar xz-utils git zstd
+
+              mkdir -p /www/server/panel
+
+              wget -O /tmp/upgrade_py313.sh https://cmcc1-node.bt.cn/install/pyenv/upgrade_py313.sh
+              sed -i "s#local cpu_count=\$(getconf _NPROCESSORS_ONLN)#local cpu_count=${JOBS}#" /tmp/upgrade_py313.sh
+              grep -n "local cpu_count=" /tmp/upgrade_py313.sh
+
+              bash /tmp/upgrade_py313.sh -p
+
+              /www/server/panel/pyenv313/bin/python3.13 -V
+              /www/server/panel/pyenv313/bin/python3.13 -c "import ssl,sqlite3,ctypes,hashlib,lzma,decimal;print(\"OPENSSL=\"+ssl.OPENSSL_VERSION, \"SQLITE=\"+sqlite3.sqlite_version)"
+              ldd /www/server/panel/pyenv313/bin/python3.13 | grep -E "libssl|libcrypto|libsqlite3" || true
+
+              cd /www/server/panel
+              tar -czf /out/pyenv313-ubuntu2604-x86_64.tar.gz \
+                --exclude="__pycache__" --exclude="*.pyc" pyenv313
+
+              ls -lh /out
+              tar -tzf /out/pyenv313-ubuntu2604-x86_64.tar.gz | head -5
+            '
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pyenv313-ubuntu2604-x86_64
+          path: out/pyenv313-ubuntu2604-x86_64.tar.gz
+          if-no-files-found: error
+          retention-days: 30
